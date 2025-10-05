@@ -1,78 +1,89 @@
 #include <iostream>
-#include <string>
 #include <mqtt/async_client.h>
 #include <nlohmann/json.hpp>
-#include "InfluxClient.h"
+#include <chrono>
+#include <ctime>
+#include <iomanip>
+#include <sstream>
+#include <thread>
 
-// MQTT Config
-const std::string MQTTSERVERADDRESS = "tcp://localhost:1883";
-const std::string MQTTCLIENTID = "ProcessorClient";
-const std::string MQTTTOPIC = "sensors/telemetry";
+using json = nlohmann::json;
 
-// InfluxDB Config
-const std::string INFLUXDBURL = "http://127.0.0.1:8086";
-const std::string INFLUXDBTOKEN = "w2xm26XtwwX6j0Yk-mZYIoqSy7CqPs2Roql9rkoGbsi5eu8TcK1B5A-ny2-HG4iviEgQ86d50TnuKdrh1rXx2g==";
-const std::string INFLUXDBORG = "NA";
-const std::string INFLUXDBBUCKET = "sensor_data";
+// Helper function for local time conversion (thread-safe for MSVC)
+std::string EpochToLocalTimeString(int64_t epoch_ns) {
+    std::time_t t = static_cast<std::time_t>(epoch_ns / 1000000000);
+    std::tm local_tm;
+    char buf[32];
+    localtime_s(&local_tm, &t);
+    std::strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", &local_tm);
+    return std::string(buf);
+}
 
-InfluxClient influx(INFLUXDBURL, INFLUXDBTOKEN, INFLUXDBORG, INFLUXDBBUCKET);
+// Get current system time in epoch nanoseconds
+int64_t GetCurrentEpochNanoseconds() {
+    auto now = std::chrono::system_clock::now();
+    return std::chrono::duration_cast<std::chrono::nanoseconds>(now.time_since_epoch()).count();
+}
 
-class Callback : public virtual mqtt::callback {
-public:
-    void message_arrived(mqtt::const_message_ptr msg) override {
-        try {
-            auto json_msg = nlohmann::json::parse(msg->get_payload());
-
-            std::string sensor_id = std::to_string(json_msg["sensor_id"].get<int>());
-            double temperature = json_msg["temperature"].get<double>();
-            double humidity = json_msg["humidity"].get<double>();
-
-            int64_t timestamp = 0;
-            if (json_msg.contains("timestamp")) {
-                timestamp = json_msg["timestamp"].get<int64_t>();
-            }
-
-            influx.WritePoint(sensor_id, temperature, humidity, timestamp);
-
-            std::cout << "Wrote point: sensor=" << sensor_id
-                << " temp=" << temperature
-                << " humidity=" << humidity
-                << " timestamp=" << timestamp << std::endl;
-
-        }
-        catch (const std::exception& e) {
-            std::cerr << "Failed to process MQTT message: " << e.what() << std::endl;
-        }
-    }
-
-    void connection_lost(const std::string& cause) override {
-        std::cerr << "MQTT connection lost: " << cause << std::endl;
-    }
-};
+const std::string SERVER{ "tcp://localhost:1883" };
+const std::string TOPIC{ "sensors/telemetry" };
 
 int main() {
-    mqtt::async_client client(MQTTSERVERADDRESS, MQTTCLIENTID);
-    Callback cb;
-    client.set_callback(cb);
-
-    mqtt::connect_options connOpts;
     try {
-        client.connect(connOpts)->wait();
-        client.subscribe(MQTTTOPIC, 1)->wait();
+        mqtt::async_client client(SERVER, "ProcessorClient");
+        client.connect()->wait();
 
-        std::cout << "Subscribed to topic: " << MQTTTOPIC << ", waiting for messages..." << std::endl;
+        std::cout << "Processor started. Listening for messages...\n";
 
-        // Loop indefinitely to keep program alive and processing messages
+        client.set_message_callback(
+            [&](mqtt::const_message_ptr msg) {
+                try {
+                    auto j = json::parse(msg->get_payload());
+                    int sensorid = j.at("sensorid").get<int>();
+                    double temperature = j.at("temperature").get<double>();
+                    double humidity = j.at("humidity").get<double>();
+                    int64_t timestamp_raw = j.at("timestamp").get<int64_t>();
+
+                    std::string time_str = EpochToLocalTimeString(timestamp_raw);
+
+                    std::cout << "Received: Sensor " << sensorid
+                        << ", Temp: " << temperature
+                        << ", Humidity: " << humidity
+                        << ", Time: " << time_str << std::endl;
+
+                    int64_t insertion_timestamp = GetCurrentEpochNanoseconds();
+
+                    // For demonstration, show readable insertion time:
+                    std::string insertion_str = EpochToLocalTimeString(insertion_timestamp);
+                    std::cout << "Insertion timestamp as local time: " << insertion_str << std::endl;
+
+                    // If sending, build a message with the insertion timestamp and readable string
+                    // json pubsub_msg = {
+                    //     {"sensorid", sensorid},
+                    //     {"temperature", temperature},
+                    //     {"humidity", humidity},
+                    //     {"timestamp", insertion_timestamp},
+                    //     {"timestring", insertion_str}
+                    // };
+                    // std::cout << "Sending: " << pubsub_msg.dump() << std::endl;
+                }
+                catch (const std::exception& e) {
+                    std::cerr << "Failed to parse/process message: " << e.what() << std::endl;
+                }
+            }
+        );
+
+        client.subscribe(TOPIC, 1)->wait();
+
         while (true) {
             std::this_thread::sleep_for(std::chrono::seconds(1));
         }
 
         client.disconnect()->wait();
     }
-    catch (const mqtt::exception& exc) {
-        std::cerr << "Error: " << exc.what() << std::endl;
+    catch (const mqtt::exception& e) {
+        std::cerr << "MQTT error: " << e.what() << std::endl;
         return 1;
     }
-
     return 0;
 }

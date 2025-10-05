@@ -1,17 +1,15 @@
 #pragma once
+
 #include <string>
 
 class PubSubClient {
-    std::string project_id_;
-    std::string topic_id_;
-    std::string token_;  // OAuth2 Access Token
+private:
+    std::string projectId;
+    std::string topicId;
+    std::string token;
 
 public:
-    PubSubClient(const std::string& project_id,
-        const std::string& topic_id,
-        const std::string& token);
-
+    PubSubClient(const std::string& projectId, const std::string& topicId, const std::string& token);
+    
     bool PublishMessage(const std::string& message);
 };
-
-

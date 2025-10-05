@@ -8,8 +8,8 @@
 
 using json = nlohmann::json;
 
-//const std::string SERVER{ "tcp://localhost:1883" };
-const std::string SERVER{ "tcp://host.docker.internal:1883" };
+const std::string SERVER{ "tcp://localhost:1883" };
+// const std::string SERVER{ "tcp://host.docker.internal:1883" };  //for Docker
 
 const std::string TOPIC{ "sensors/telemetry" };
 
@@ -25,10 +25,10 @@ int main() {
 
         while (true) {
             json j{
-                {"sensor_id", gen() % 10 + 1},
+                {"sensorid", gen() % 10 + 1},
                 {"temperature", std::round(tempDist(gen) * 100) / 100},
                 {"humidity", std::round(humDist(gen) * 100) / 100},
-                {"timestamp", static_cast<int64_t>(std::time(nullptr)) * 1000}
+                {"timestamp", static_cast<int64_t>(std::time(nullptr)) * 1000000000}
             };
 
             client.publish(TOPIC, j.dump(), 1, false);

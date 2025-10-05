@@ -1,0 +1,11 @@
+# Build folders and files
+build/
+*.o
+*.exe
+
+# GCP key file
+gcp-service-account-key.json
+
+# IDE files
+.vscode/
+*.idea/

@@ -1,56 +1,38 @@
 #include "pch.h"
 #include "PubSubClient.h"
-
-#include <curl/curl.h>
+#include "Utils.h"
 #include <iostream>
+#include <curl/curl.h>
 #include <nlohmann/json.hpp>
 
 using json = nlohmann::json;
 
-#pragma comment(lib, "ws2_32.lib")
-
-static std::string Base64Encode(const std::string& in) {
-    static const std::string base64_chars =
-        "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-        "abcdefghijklmnopqrstuvwxyz"
-        "0123456789+/";
-
-    std::string out;
-    int val = 0, valb = -6;
-    for (unsigned char c : in) {
-        val = (val << 8) + c;
-        valb += 8;
-        while (valb >= 0) {
-            out.push_back(base64_chars[(val >> valb) & 0x3F]);
-            valb -= 6;
-        }
-    }
-    if (valb > -6) out.push_back(base64_chars[((val << 8) >> (valb + 8)) & 0x3F]);
-    while (out.size() % 4) out.push_back('=');
-    return out;
+static size_t WriteCallback(void* contents, size_t size, size_t nmemb, std::string* userp) {
+    userp->append((char*)contents, size * nmemb);
+    return size * nmemb;
 }
 
-PubSubClient::PubSubClient(const std::string& project_id,
-    const std::string& topic_id,
-    const std::string& token)
-    : project_id_(project_id), topic_id_(topic_id), token_(token)
-{
-    WSADATA wsaData;
-    int res = WSAStartup(MAKEWORD(2, 2), &wsaData);
-    if (res != 0) {
-        std::cerr << "WSAStartup failed: " << res << std::endl;
-        // Handle error as appropriate
+PubSubClient::PubSubClient(const std::string& projectId, const std::string& topicId, const std::string& token)
+    : projectId(projectId), topicId(topicId), token(token) {
+    // If token is empty, try to get from environment safely
+    if (this->token.empty()) {
+        this->token = getEnvVarSafe("GOOGLE_ACCESS_TOKEN");
     }
 }
 
 bool PubSubClient::PublishMessage(const std::string& message) {
-    json payload = {
-        {"messages", {
-            {{"data", Base64Encode(message)}}
-        }}
-    };
+    if (token.empty()) {
+        std::cerr << "No access token available for PubSub" << std::endl;
+        return false;
+    }
 
-    std::string url = "https://pubsub.googleapis.com/v1/projects/" + project_id_ + "/topics/" + topic_id_ + ":publish";
+    json payload;
+    payload["messages"] = json::array();
+    json msgObj;
+    msgObj["data"] = message;
+    payload["messages"].push_back(msgObj);
+
+    std::string url = "https://pubsub.googleapis.com/v1/projects/" + projectId + "/topics/" + topicId + ":publish";
 
     CURL* curl = curl_easy_init();
     if (!curl) {
@@ -59,21 +41,29 @@ bool PubSubClient::PublishMessage(const std::string& message) {
     }
 
     struct curl_slist* headers = nullptr;
-    headers = curl_slist_append(headers, ("Authorization: Bearer " + token_).c_str());
+    std::string authHeader = "Authorization: Bearer " + token;
+    headers = curl_slist_append(headers, authHeader.c_str());
     headers = curl_slist_append(headers, "Content-Type: application/json");
 
     std::string body = payload.dump();
+    std::string response;
 
     curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
     curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body.c_str());
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
 
     CURLcode res = curl_easy_perform(curl);
+    long responseCode = 0;
+    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &responseCode);
+
     curl_slist_free_all(headers);
     curl_easy_cleanup(curl);
 
-    if (res != CURLE_OK) {
-        std::cerr << "CURL request failed: " << curl_easy_strerror(res) << std::endl;
+    if (res != CURLE_OK || responseCode != 200) {
+        std::cerr << "CURL request failed: " << curl_easy_strerror(res)
+            << " (HTTP " << responseCode << ")" << std::endl;
         return false;
     }
 
