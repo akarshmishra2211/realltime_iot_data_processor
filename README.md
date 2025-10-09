@@ -26,9 +26,8 @@ A high-performance, enterprise-grade real-time IoT data processing pipeline buil
 ## 🚀 Key Features
 
 ### **High-Performance Data Processing**
-- **Sub-100ms latency** for real-time sensor data processing
+- Real-time sensor data processing
 - **Thread-safe message handling** with asynchronous MQTT client
-- **Nanosecond-precision timestamps** with system-specific time zone handling
 - **Zero-copy memory optimization** for high-throughput scenarios
 
 ### **Enterprise-Grade Messaging**
@@ -74,12 +73,12 @@ A high-performance, enterprise-grade real-time IoT data processing pipeline buil
   },
   "influxdb": {
     "url": "http://localhost:8086",
-    "token": "your-influxdb-token",
-    "org": "your-organization",
+    "token": "user-influxdb-token",
+    "org": "user-organization",
     "bucket": "sensor_data"
   },
   "gcp": {
-    "project_id": "your-gcp-project",
+    "project_id": "user-gcp-project",
     "topic_id": "sensor-updates",
     "credentials_path": "/path/to/credentials.json"
   }

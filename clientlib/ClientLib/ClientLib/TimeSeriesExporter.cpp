@@ -34,7 +34,7 @@ std::string TimeSeriesExporter::exportToJSON() {
     exportData["total_readings"] = readings.size();
     exportData["data"] = jsonArray;
 
-    return exportData.dump(2);  // Pretty print
+    return exportData.dump(2);
 }
 
 std::string TimeSeriesExporter::exportToCSV() {
@@ -52,6 +52,7 @@ std::string TimeSeriesExporter::exportToCSV() {
 }
 
 bool TimeSeriesExporter::saveToFile(const std::string& content, const std::string& filename) {
+
     std::string filepath = outputDir + "/" + filename;
     std::ofstream file(filepath);
 
